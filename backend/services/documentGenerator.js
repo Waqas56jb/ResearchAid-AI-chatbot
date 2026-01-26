@@ -220,6 +220,12 @@ export async function generatePDF(htmlContent, metadata = {}) {
               padding-left: 20px;
               margin-bottom: 10px;
               font-weight: normal !important;
+              font-family: 'Times New Roman', serif;
+              cursor: pointer;
+              transition: background-color 0.2s ease;
+            }
+            .reference-entry:hover {
+              background-color: #f0f0f0;
             }
             .reference-entry strong {
               font-weight: normal !important;
@@ -281,12 +287,20 @@ function convertMarkdownToHTML(markdown) {
                      html.match(/\*\*Suggestions for Improvement:\*\*/);
   
   // Check if this is a dissertation outline (has hierarchical numbered structure like "1.", "1.1", "1.1.1")
-  // Also check for patterns like "**Chapter 1: Introduction**" or "**Abstract**"
-  const isDissertationOutline = html.match(/^\d+\.\d+\s+/m) || 
-                                (html.match(/^\d+\.\s+[A-Z]/m) && html.match(/Chapter|Introduction|Literature Review|Methodology|Results|Discussion|Conclusion/i)) ||
-                                html.match(/\*\*Chapter\s+\d+:/i) ||
-                                html.match(/\*\*Abstract\*\*/i) ||
-                                (html.match(/\*\*[^*]+\*\*/) && html.match(/Chapter\s+\d+|Abstract|Introduction|Literature Review|Methodology|Results|Discussion|Conclusion/i));
+  // CRITICAL: Make detection VERY strict - ONLY trigger for actual dissertation outline requests
+  // NEVER trigger for assignment responses - they have different structure
+  // Assignment responses have: Requirements Analysis, System Architecture, Implementation, Testing, Deployment, Evaluation, Conclusion, References
+  // Dissertation outlines have: Abstract, Chapter 1: Introduction, Chapter 2: Literature Review, etc.
+  const hasAssignmentKeywords = html.match(/Requirements Analysis|System Architecture|Implementation|Testing|Deployment|Evaluation|Assignment Response|Assignment Brief/i);
+  const hasDissertationKeywords = html.match(/Chapter\s+\d+:|Dissertation Outline|Dissertation Topic|Research Field/i);
+  
+  // ONLY detect as dissertation outline if:
+  // 1. It has dissertation-specific keywords AND
+  // 2. It does NOT have assignment-specific keywords AND
+  // 3. It has hierarchical structure (1.1, 1.2, etc.) OR explicit "Dissertation Outline" text
+  const isDissertationOutline = !hasAssignmentKeywords && 
+                                hasDissertationKeywords && 
+                                (html.match(/^\d+\.\d+\s+/m) || html.match(/Dissertation Outline:/i) || html.match(/Chapter\s+\d+:/i));
   
   // Check if this is research questions (has numbered questions like "1. Question text..." or "1. **Question:**")
   const isResearchQuestions = html.match(/^\d+\.\s+[A-Z][^0-9]{20,}/m) && 
@@ -1118,6 +1132,34 @@ function convertMarkdownToHTML(markdown) {
                           /^[A-Z][a-z]+,\s*\d{4}\./.test(trimmed) ||
                           /^[A-Z][a-z]+,\s*[A-Z]\.\s+\d{4}/.test(trimmed));
       
+      // CRITICAL: If it's a reference, process it FIRST and STRICTLY remove ALL bold formatting
+      // This must happen BEFORE any other text processing to prevent bold from being applied
+      if (isReference) {
+        if (currentPara.length > 0) {
+          paragraphs.push('<p style="font-family: \'Times New Roman\', serif; font-size: 12pt; text-align: justify; line-height: 1.6; margin-bottom: 12px; font-weight: normal;">' + currentPara.join(' ') + '</p>');
+          currentPara = [];
+        }
+        // Format reference: STRICTLY remove ALL bold markdown, preserve italics for titles
+        let refText = trimmed;
+        // Remove ALL bold markdown (**, **text**, etc.) - STRICT removal with multiple passes
+        refText = refText.replace(/\*\*/g, ''); // Remove all double asterisks first
+        refText = refText.replace(/\*\*([^*]+?)\*\*/g, '$1'); // Remove any remaining bold patterns
+        refText = refText.replace(/\*\*/g, ''); // Second pass to catch any remaining
+        // Remove any HTML bold tags that might have been added
+        refText = refText.replace(/<strong[^>]*>/gi, '');
+        refText = refText.replace(/<\/strong>/gi, '');
+        refText = refText.replace(/<b[^>]*>/gi, '');
+        refText = refText.replace(/<\/b>/gi, '');
+        // Convert *Title* to <em>Title</em> for proper italicization (only single asterisks for titles)
+        // But be careful - only convert if it's clearly a title (not part of bold markdown)
+        refText = refText.replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '<em>$1</em>');
+        // Final cleanup - remove any remaining asterisks that might be leftover
+        refText = refText.replace(/\*\*/g, '');
+        // Ensure no bold styling - use inline style with multiple overrides to force normal weight
+        paragraphs.push(`<p class="reference-entry" style="font-family: 'Times New Roman', serif !important; font-size: 12pt !important; text-align: left !important; line-height: 1.6 !important; margin-bottom: 10px !important; margin-left: 20px !important; text-indent: -20px !important; padding-left: 20px !important; font-weight: normal !important; font-style: normal !important; cursor: pointer; transition: background-color 0.2s ease;" onmouseover="this.style.backgroundColor='#f0f0f0'" onmouseout="this.style.backgroundColor='transparent'">${refText}</p>`);
+        continue;
+      }
+      
       // Check if it's a list item with bold label (e.g., "Unit Testing:", "Integration Testing:")
       const isListItemWithBoldLabel = trimmed.match(/^(\*\*)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*):\s*(.+)$/);
       
@@ -1132,20 +1174,6 @@ function convertMarkdownToHTML(markdown) {
         const label = isListItemWithBoldLabel[2];
         const description = isListItemWithBoldLabel[3] || '';
         cleanedText = `${label}: ${description}`.trim();
-      }
-      
-      // If it's a reference, format it separately (NOT bold, italicize titles)
-      if (isReference) {
-        if (currentPara.length > 0) {
-          paragraphs.push('<p style="font-family: \'Times New Roman\', serif; font-size: 12pt; text-align: justify; line-height: 1.6; margin-bottom: 12px; font-weight: normal;">' + currentPara.join(' ') + '</p>');
-          currentPara = [];
-        }
-        // Format reference: remove bold, preserve italics for titles
-        let refText = cleanedText;
-        // Convert *Title* to <em>Title</em> for proper italicization
-        refText = refText.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-        paragraphs.push(`<p class="reference-entry" style="font-family: 'Times New Roman', serif; font-size: 12pt; text-align: left; line-height: 1.6; margin-bottom: 10px; margin-left: 20px; text-indent: -20px; padding-left: 20px; font-weight: normal !important;">${refText}</p>`);
-        continue;
       }
       
       // Fix repeated "6." in list items under 6.1 or 6.2 sections
@@ -1207,13 +1235,26 @@ function convertMarkdownToHTML(markdown) {
   // Remove any remaining bold markdown from body text (but preserve in summary labels and headings)
   html = html.replace(/(?<!<strong[^>]*>)(?<!<h[^>]*>)\*\*([^*<]+?)\*\*(?!<\/strong>)(?!<\/h)/g, '$1');
   
-  // CRITICAL FIX: Remove bold from references - ensure all reference entries are NOT bold
-  html = html.replace(/<p class="reference-entry"[^>]*>(\*\*)?([^*<]+?)(\*\*)?<\/p>/g, (match, bold1, content, bold2) => {
-    // Remove any bold markdown and ensure normal font weight
-    const cleanContent = content.replace(/\*\*/g, '');
+  // CRITICAL FIX: STRICTLY remove ALL bold from references - process BEFORE any other bold removal
+  // This must run FIRST to catch any references that might have been processed with bold
+  html = html.replace(/<p class="reference-entry"[^>]*>([^<]*)<\/p>/g, (match, content) => {
+    // Remove ALL bold markdown, <strong> tags, and ensure normal font weight
+    let cleanContent = content;
+    cleanContent = cleanContent.replace(/\*\*/g, ''); // Remove all double asterisks
+    cleanContent = cleanContent.replace(/<strong[^>]*>/gi, ''); // Remove opening strong tags
+    cleanContent = cleanContent.replace(/<\/strong>/gi, ''); // Remove closing strong tags
+    cleanContent = cleanContent.replace(/<b[^>]*>/gi, ''); // Remove opening b tags
+    cleanContent = cleanContent.replace(/<\/b>/gi, ''); // Remove closing b tags
     // Preserve italics for titles (*Title* -> <em>Title</em>)
     const withItalics = cleanContent.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    return `<p class="reference-entry" style="font-family: 'Times New Roman', serif; font-size: 12pt; text-align: left; line-height: 1.6; margin-bottom: 10px; margin-left: 20px; text-indent: -20px; padding-left: 20px; font-weight: normal !important;">${withItalics}</p>`;
+    // Force normal weight with multiple overrides
+    return `<p class="reference-entry" style="font-family: 'Times New Roman', serif; font-size: 12pt; text-align: left; line-height: 1.6; margin-bottom: 10px; margin-left: 20px; text-indent: -20px; padding-left: 20px; font-weight: normal !important; font-style: normal; cursor: pointer; transition: background-color 0.2s ease;" onmouseover="this.style.backgroundColor='#f0f0f0'" onmouseout="this.style.backgroundColor='transparent'">${withItalics}</p>`;
+  });
+  
+  // Also remove any remaining bold markdown that might be in reference format but not yet wrapped
+  html = html.replace(/(\d+\.\s+[A-Z][a-z]+,\s*\d{4}[^*<]*?)(\*\*([^*<]+?)\*\*)/g, (match, before, boldPart, boldText) => {
+    // This is a reference with bold markdown - remove the bold
+    return before + boldText;
   });
   
   // Remove bold from list items with labels (e.g., "**Unit Testing:** description")
@@ -1647,10 +1688,13 @@ export async function generateDOCX(htmlContent, metadata = {}) {
         }
         
         // Remove markdown formatting and URLs from references
-        // IMPORTANT: Remove ALL bold formatting from regular text - only headings should be bold
+        // CRITICAL: Remove ALL bold formatting from regular text - only headings should be bold
+        // For references, we need to be extra careful to remove ALL bold markdown
         let text = line
-          .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold - regular text should NOT be bold
-          .replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, '$1') // Italic (but preserve for titles in references)
+          .replace(/\*\*/g, '') // Remove ALL double asterisks first (most aggressive)
+          .replace(/\*\*(.*?)\*\*/g, '$1') // Remove any remaining bold patterns
+          .replace(/\*\*/g, '') // Second pass to catch any remaining
+          .replace(/(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)/g, '$1') // Remove italic markdown (but we'll preserve titles separately)
           .replace(/`(.*?)`/g, '$1') // Code
           .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1') // Links
           .replace(/https?:\/\/[^\s\)]+/gi, '') // Remove all URLs
@@ -1672,42 +1716,69 @@ export async function generateDOCX(htmlContent, metadata = {}) {
           
           if (isReference) {
             // Parse reference to apply italics to titles (format: Number. Author, Year. *Title*. Journal...)
+            // CRITICAL: References must NEVER be bold - ensure all text is normal weight
             const referenceParts = [];
             
-            // Split text by asterisks to identify italic sections
-            const parts = text.split(/(\*[^*]+\*)/);
+            // First, ensure text has NO bold markdown (should already be removed above, but double-check)
+            let cleanText = text.replace(/\*\*/g, '').replace(/<strong[^>]*>/gi, '').replace(/<\/strong>/gi, '');
             
-            parts.forEach((part, index) => {
-              if (part.startsWith('*') && part.endsWith('*')) {
-                // This is an italic section (title)
-                const italicText = part.slice(1, -1); // Remove asterisks
-                referenceParts.push(
-                  new TextRun({
-                    text: italicText,
-                    size: 22,
-                    font: 'Times New Roman',
-                    italics: true
-                  })
-                );
-              } else if (part.trim()) {
-                // Regular text
-                referenceParts.push(
-                  new TextRun({
-                    text: part,
-                    size: 22,
-                    font: 'Times New Roman'
-                  })
-                );
-              }
-            });
+            // Try to identify italic sections (titles) - look for patterns like "Title" that should be italicized
+            // In Harvard style, titles are often italicized, but the markdown might already be removed
+            // So we'll check for common patterns: "Title." or "Title," followed by journal name
+            const titlePattern = /([A-Z][^,\.]+(?:,\s*\d{4})?\.\s+)([A-Z][^\.]+?)(\.\s+[A-Z])/;
+            const titleMatch = cleanText.match(titlePattern);
             
-            // If no parts were created (no asterisks found), use whole text
+            if (titleMatch) {
+              // Found a title pattern - italicize the title part
+              const beforeTitle = titleMatch[1];
+              const title = titleMatch[2];
+              const afterTitle = titleMatch[3];
+              
+              referenceParts.push(
+                new TextRun({
+                  text: beforeTitle,
+                  size: 22,
+                  font: 'Times New Roman',
+                  bold: false
+                })
+              );
+              referenceParts.push(
+                new TextRun({
+                  text: title,
+                  size: 22,
+                  font: 'Times New Roman',
+                  italics: true,
+                  bold: false
+                })
+              );
+              referenceParts.push(
+                new TextRun({
+                  text: cleanText.substring(beforeTitle.length + title.length),
+                  size: 22,
+                  font: 'Times New Roman',
+                  bold: false
+                })
+              );
+            } else {
+              // No clear title pattern - just use the whole text, NOT bold
+              referenceParts.push(
+                new TextRun({
+                  text: cleanText,
+                  size: 22,
+                  font: 'Times New Roman',
+                  bold: false
+                })
+              );
+            }
+            
+            // Ensure at least one part exists
             if (referenceParts.length === 0) {
               referenceParts.push(
                 new TextRun({
-                  text: text,
+                  text: cleanText || text,
                   size: 22,
-                  font: 'Times New Roman'
+                  font: 'Times New Roman',
+                  bold: false
                 })
               );
             }
