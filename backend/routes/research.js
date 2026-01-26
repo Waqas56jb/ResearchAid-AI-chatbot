@@ -33,7 +33,23 @@ router.post('/summarize', async (req, res) => {
     
     // Parse document
     // Use utility function to get upload directory (handles Vercel/serverless)
-    const uploadDir = await ensureUploadDir();
+    let uploadDir;
+    try {
+      uploadDir = await ensureUploadDir();
+    } catch (dirError) {
+      // If directory creation fails, force use /tmp
+      console.error('Upload directory creation failed, forcing /tmp:', dirError.message);
+      uploadDir = '/tmp';
+      try {
+        await fs.mkdir('/tmp', { recursive: true });
+      } catch (tmpError) {
+        return res.status(500).json({
+          error: 'Failed to initialize file system',
+          message: 'Unable to create temporary directory. Please try again.'
+        });
+      }
+    }
+    
     const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
     await file.mv(filePath);
 
