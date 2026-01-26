@@ -4,10 +4,29 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import fs from 'fs/promises';
 
 export async function generatePDF(htmlContent, metadata = {}) {
+  const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+  
+  // Try Puppeteer first, fallback to Playwright if it fails
+  try {
+    return await generatePDFWithPuppeteer(htmlContent, metadata, isVercel);
+  } catch (puppeteerError) {
+    // If Puppeteer fails with system library error, try Playwright
+    if (puppeteerError.message && (puppeteerError.message.includes('libnss3.so') || puppeteerError.message.includes('shared libraries'))) {
+      console.log('Puppeteer failed with system library error, trying Playwright...');
+      try {
+        return await generatePDFWithPlaywright(htmlContent, metadata, isVercel);
+      } catch (playwrightError) {
+        console.error('Playwright also failed:', playwrightError.message);
+        throw new Error(`PDF generation failed. Both Puppeteer and Playwright encountered errors. Please try downloading as DOCX or Markdown format instead.`);
+      }
+    }
+    throw puppeteerError;
+  }
+}
+
+async function generatePDFWithPuppeteer(htmlContent, metadata = {}, isVercel = false) {
   let browser = null;
   try {
-    // Configure Puppeteer for Vercel serverless environment
-    const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
     
     const launchOptions = {
       headless: true,
@@ -387,7 +406,7 @@ export async function generatePDF(htmlContent, metadata = {}) {
     return pdfBuffer;
 
   } catch (error) {
-    console.error('PDF generation error:', error);
+    console.error('Puppeteer PDF generation error:', error);
     console.error('Error name:', error.name);
     console.error('Error message:', error.message);
     console.error('Error stack:', error.stack);
@@ -401,7 +420,167 @@ export async function generatePDF(htmlContent, metadata = {}) {
       }
     }
     
-    throw new Error(`Failed to generate PDF: ${error.message}`);
+    throw error; // Re-throw to allow fallback
+  }
+}
+
+async function generatePDFWithPlaywright(htmlContent, metadata = {}, isVercel = false) {
+  let browser = null;
+  try {
+    const { chromium } = await import('playwright-core');
+    
+    // Convert markdown to HTML if needed
+    let html = typeof htmlContent === 'string' ? htmlContent : htmlContent.toString();
+    html = convertMarkdownToHTML(html);
+    
+    // Set content with proper styling (same as Puppeteer version)
+    const fullHTML = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <style>
+            @page {
+              margin: 2.5cm;
+            }
+            body {
+              font-family: 'Times New Roman', serif;
+              font-size: 12pt;
+              line-height: 1.6;
+              color: #000;
+              max-width: 100%;
+              margin: 0;
+              padding: 0;
+            }
+            h1 { 
+              font-family: 'Times New Roman', serif;
+              font-size: 26pt; 
+              font-weight: bold; 
+              text-align: left; 
+              margin-top: 35px;
+              margin-bottom: 20px;
+              padding-left: 0;
+            }
+            h2 { 
+              font-family: 'Times New Roman', serif;
+              font-size: 18pt; 
+              font-weight: bold; 
+              margin-top: 28px; 
+              margin-bottom: 18px;
+              padding-left: 0;
+            }
+            h3 { 
+              font-family: 'Times New Roman', serif;
+              font-size: 16pt; 
+              font-weight: bold; 
+              margin-top: 20px; 
+              margin-bottom: 12px;
+              padding-left: 0;
+            }
+            h4 { 
+              font-family: 'Times New Roman', serif;
+              font-size: 14pt; 
+              font-weight: bold; 
+              margin-top: 16px; 
+              margin-bottom: 10px;
+              padding-left: 0;
+            }
+            p { 
+              text-align: justify; 
+              margin-bottom: 12px; 
+              text-indent: 0;
+              line-height: 1.6;
+            }
+            ul, ol {
+              margin-left: 30px;
+              margin-bottom: 12px;
+            }
+            li {
+              margin-bottom: 6px;
+            }
+            strong {
+              font-weight: bold;
+            }
+            code {
+              background-color: #f5f5f5;
+              padding: 2px 4px;
+              border-radius: 3px;
+              font-family: 'Courier New', monospace;
+              font-size: 10pt;
+            }
+            pre {
+              background-color: #f5f5f5;
+              padding: 12px;
+              border-radius: 4px;
+              overflow-x: auto;
+              margin: 12px 0;
+              font-family: 'Courier New', monospace;
+              font-size: 10pt;
+            }
+            .reference-entry {
+              text-align: left;
+              margin-left: 20px;
+              text-indent: -20px;
+              padding-left: 20px;
+              margin-bottom: 10px;
+              font-weight: normal !important;
+              font-family: 'Times New Roman', serif;
+            }
+            .reference-entry:hover {
+              background-color: #f0f0f0;
+            }
+          </style>
+        </head>
+        <body>
+          ${html}
+        </body>
+      </html>
+    `;
+
+    // For Vercel, use @playwright/browser-chromium
+    let launchOptions = {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    };
+
+    if (isVercel) {
+      try {
+        const chromiumBrowser = await import('@playwright/browser-chromium');
+        launchOptions.executablePath = chromiumBrowser.executablePath();
+        console.log('Using @playwright/browser-chromium for Vercel');
+      } catch (e) {
+        console.warn('@playwright/browser-chromium not available, using default');
+      }
+    }
+
+    browser = await chromium.launch(launchOptions);
+    const page = await browser.newPage();
+    await page.setContent(fullHTML, { waitUntil: 'networkidle' });
+    
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: {
+        top: '25mm',
+        right: '25mm',
+        bottom: '25mm',
+        left: '25mm'
+      }
+    });
+
+    await browser.close();
+    return pdfBuffer;
+
+  } catch (error) {
+    console.error('Playwright PDF generation error:', error);
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Error closing browser:', closeError);
+      }
+    }
+    throw error;
   }
 }
 
