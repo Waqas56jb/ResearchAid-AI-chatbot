@@ -26,12 +26,25 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // File upload configuration
 // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-const tempDir = process.env.VERCEL ? '/tmp' : './uploads/temp';
+// CRITICAL: Always use /tmp in production/serverless to avoid filesystem errors
+// Check multiple indicators to ensure we detect Vercel correctly
+const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+const isProduction = process.env.NODE_ENV === 'production';
+const tempDir = (isVercel || isProduction) ? '/tmp' : './uploads/temp';
+
+console.log('File upload temp directory configuration:');
+console.log('  VERCEL:', process.env.VERCEL);
+console.log('  VERCEL_ENV:', process.env.VERCEL_ENV);
+console.log('  NODE_ENV:', process.env.NODE_ENV);
+console.log('  isVercel:', isVercel);
+console.log('  isProduction:', isProduction);
+console.log('  tempDir:', tempDir);
+
 app.use(fileUpload({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  createParentPath: true,
+  createParentPath: false, // CRITICAL: Don't create parent paths - /tmp already exists
   tempFileDir: tempDir,
-  useTempFiles: false // Use memory storage for Vercel
+  useTempFiles: false // Use memory storage (files are in memory, not on disk)
 }));
 
 // Routes
