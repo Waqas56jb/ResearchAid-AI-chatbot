@@ -221,11 +221,28 @@ router.post('/outline', async (req, res) => {
  */
 router.post('/assignment', async (req, res) => {
   try {
+    console.log('Assignment request received:', {
+      hasFile: !!req.files?.file,
+      hasText: !!req.body?.assignmentText,
+      contentType: req.headers['content-type']
+    });
+
+    // Check OpenAI API key
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OpenAI API key not configured');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'OpenAI API key is not configured. Please contact the administrator.'
+      });
+    }
+
     let assignmentText = '';
 
     // If file is uploaded, parse it
     if (req.files && req.files.file) {
       const file = req.files.file;
+      console.log('Processing uploaded file:', file.name, file.mimetype);
+      
       const uploadDir = path.join(__dirname, '../uploads');
       await fs.mkdir(uploadDir, { recursive: true });
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
@@ -238,6 +255,7 @@ router.post('/assignment', async (req, res) => {
     } else if (req.body.assignmentText) {
       // If text is provided directly
       assignmentText = req.body.assignmentText;
+      console.log('Processing text input, length:', assignmentText.length);
     } else {
       return res.status(400).json({ 
         error: 'Assignment file or text is required' 
@@ -250,9 +268,15 @@ router.post('/assignment', async (req, res) => {
       });
     }
 
+    console.log('Starting assignment generation...');
+    const startTime = Date.now();
+    
     const responseResult = await generateAssignmentResponse(assignmentText, {
       model: req.body.model || 'gpt-4-turbo-preview'
     });
+
+    const duration = Date.now() - startTime;
+    console.log('Assignment generation completed in', duration, 'ms');
 
     res.json({
       response: responseResult.response,
@@ -263,9 +287,34 @@ router.post('/assignment', async (req, res) => {
 
   } catch (error) {
     console.error('Assignment response generation error:', error);
-    res.status(500).json({
-      error: 'Failed to generate assignment response',
-      message: error.message
+    console.error('Error stack:', error.stack);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      code: error.code
+    });
+
+    // Provide more detailed error information
+    let errorMessage = 'Failed to generate assignment response';
+    let statusCode = 500;
+
+    if (error.message.includes('API key')) {
+      errorMessage = 'OpenAI API key is not configured';
+      statusCode = 500;
+    } else if (error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
+      errorMessage = 'Request timeout. The assignment generation is taking too long. Please try with a shorter assignment brief.';
+      statusCode = 504;
+    } else if (error.message.includes('rate limit')) {
+      errorMessage = 'Rate limit exceeded. Please try again in a few moments.';
+      statusCode = 429;
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    res.status(statusCode).json({
+      error: errorMessage,
+      message: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
