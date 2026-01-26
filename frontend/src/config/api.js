@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+// Priority: 1. VITE_API_URL from .env (Vercel URL for production)
+//          2. Fallback to localhost for local development
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const apiClient = axios.create({

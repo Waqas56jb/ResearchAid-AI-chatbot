@@ -42,6 +42,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Export app for Vercel serverless functions (required)
+export default app;
+
+// Start server only for local development (not in Vercel)
+// Vercel sets VERCEL=1 automatically, so we check for that
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
