@@ -12,6 +12,7 @@ import { generatePDF, generateDOCX } from '../services/documentGenerator.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ensureUploadDir } from '../utils/fileUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,9 +32,8 @@ router.post('/summarize', async (req, res) => {
     const file = req.files.file;
     
     // Parse document
-    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
-    await fs.mkdir(uploadDir, { recursive: true });
+    // Use utility function to get upload directory (handles Vercel/serverless)
+    const uploadDir = await ensureUploadDir();
     const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
     await file.mv(filePath);
 
@@ -76,9 +76,8 @@ router.post('/questions', async (req, res) => {
     // If file is uploaded, parse it
     if (req.files && req.files.file) {
       const uploadedFile = req.files.file;
-      // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-      const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
-      await fs.mkdir(uploadDir, { recursive: true });
+      // Use utility function to get upload directory (handles Vercel/serverless)
+      const uploadDir = await ensureUploadDir();
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${uploadedFile.name}`);
       await uploadedFile.mv(filePath);
       
@@ -120,9 +119,8 @@ router.post('/critique', async (req, res) => {
     const file = req.files.file;
     
     // Parse document
-    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
-    await fs.mkdir(uploadDir, { recursive: true });
+    // Use utility function to get upload directory (handles Vercel/serverless)
+    const uploadDir = await ensureUploadDir();
     const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
     await file.mv(filePath);
 
@@ -246,9 +244,8 @@ router.post('/assignment', async (req, res) => {
       const file = req.files.file;
       console.log('Processing uploaded file:', file.name, file.mimetype);
       
-      // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-      const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
-      await fs.mkdir(uploadDir, { recursive: true });
+      // Use utility function to get upload directory (handles Vercel/serverless)
+      const uploadDir = await ensureUploadDir();
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
       await file.mv(filePath);
       

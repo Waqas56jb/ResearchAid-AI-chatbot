@@ -6,6 +6,7 @@ import { saveDocument, getDocument } from '../services/documentStore.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { ensureUploadDir } from '../utils/fileUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,9 +36,8 @@ router.post('/', async (req, res) => {
     const documentId = uuidv4();
     
     // Save uploaded file temporarily
-    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
-    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
-    await fs.mkdir(uploadDir, { recursive: true });
+    // Use utility function to get upload directory (handles Vercel/serverless)
+    const uploadDir = await ensureUploadDir();
     const filePath = path.join(uploadDir, `${documentId}_${file.name}`);
     await file.mv(filePath);
 
