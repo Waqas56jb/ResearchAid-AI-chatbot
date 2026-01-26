@@ -378,6 +378,12 @@ router.post('/assignment/download', async (req, res) => {
       } catch (pdfError) {
         console.error('PDF generation error:', pdfError);
         console.error('PDF error stack:', pdfError.stack);
+        
+        // If it's a system library error, provide helpful message
+        if (pdfError.message && pdfError.message.includes('libnss3.so')) {
+          throw new Error('PDF generation failed due to serverless environment limitations. Please try downloading as Markdown (MD) format instead, or contact support for alternative PDF generation options.');
+        }
+        
         throw new Error(`PDF generation failed: ${pdfError.message}`);
       }
     } else {

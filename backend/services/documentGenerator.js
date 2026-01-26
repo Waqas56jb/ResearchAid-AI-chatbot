@@ -49,13 +49,56 @@ export async function generatePDF(htmlContent, metadata = {}) {
           throw new Error('chromium.executablePath is not available');
         }
         
-        // Use chromium's optimized args for serverless
+        // Use chromium's optimized args for serverless (CRITICAL for Vercel)
         if (chromium.args && Array.isArray(chromium.args)) {
-          launchOptions.args = chromium.args;
+          launchOptions.args = [...chromium.args];
+        } else {
+          // Fallback args if chromium.args is not available
+          launchOptions.args = [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-update',
+            '--disable-default-apps',
+            '--disable-features=TranslateUI',
+            '--disable-hang-monitor',
+            '--disable-ipc-flooding-protection',
+            '--disable-popup-blocking',
+            '--disable-prompt-on-repost',
+            '--disable-renderer-backgrounding',
+            '--disable-sync',
+            '--disable-translate',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--no-pings',
+            '--use-mock-keychain',
+            '--hide-scrollbars',
+            '--ignore-certificate-errors',
+            '--ignore-ssl-errors',
+            '--ignore-certificate-errors-spki-list'
+          ];
         }
+        
+        // Additional Vercel-specific configuration
+        launchOptions.ignoreHTTPSErrors = true;
+        launchOptions.headless = true;
         
         console.log('Using @sparticuz/chromium for Vercel');
         console.log('Executable path:', launchOptions.executablePath);
+        console.log('Args count:', launchOptions.args.length);
       } catch (chromiumError) {
         console.error('CRITICAL: @sparticuz/chromium import/usage failed:');
         console.error('Error name:', chromiumError.name);
