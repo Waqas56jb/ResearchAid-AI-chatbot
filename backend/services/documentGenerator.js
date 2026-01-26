@@ -6,7 +6,7 @@ import fs from 'fs/promises';
 export async function generatePDF(htmlContent, metadata = {}) {
   const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
   
-  // Try Puppeteer first, fallback to Playwright if it fails
+  // Try Puppeteer first, fallback to Playwright, then PDFKit
   try {
     return await generatePDFWithPuppeteer(htmlContent, metadata, isVercel);
   } catch (puppeteerError) {
@@ -16,8 +16,9 @@ export async function generatePDF(htmlContent, metadata = {}) {
       try {
         return await generatePDFWithPlaywright(htmlContent, metadata, isVercel);
       } catch (playwrightError) {
-        console.error('Playwright also failed:', playwrightError.message);
-        throw new Error(`PDF generation failed. Both Puppeteer and Playwright encountered errors. Please try downloading as DOCX or Markdown format instead.`);
+        console.log('Playwright also failed, using PDFKit fallback...');
+        // Final fallback: Use PDFKit (pure Node.js, no browser needed)
+        return await generatePDFWithPDFKit(htmlContent, metadata);
       }
     }
     throw puppeteerError;
@@ -582,6 +583,115 @@ async function generatePDFWithPlaywright(htmlContent, metadata = {}, isVercel = 
     }
     throw error;
   }
+}
+
+async function generatePDFWithPDFKit(htmlContent, metadata = {}) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      // Dynamic import for PDFKit (CommonJS module)
+      const pdfkitModule = await import('pdfkit');
+      const PDFDocument = pdfkitModule.default || pdfkitModule;
+      
+      const doc = new PDFDocument({
+        size: 'A4',
+        margins: { top: 70, bottom: 70, left: 70, right: 70 }
+      });
+      
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => {
+        const pdfBuffer = Buffer.concat(buffers);
+        resolve(pdfBuffer);
+      });
+      doc.on('error', reject);
+      
+      // Convert HTML/markdown to plain text for PDFKit
+      let content = typeof htmlContent === 'string' ? htmlContent : htmlContent.toString();
+      
+      // Remove Table of Contents
+      content = content.replace(/^# Table of Contents[\s\S]*?---/gim, '');
+      content = content.replace(/^Table of Contents[\s\S]*?---/gim, '');
+      
+      // Remove extra dashes
+      content = content.replace(/^---+$/gm, '');
+      content = content.replace(/^--+$/gm, '');
+      
+      // Process markdown headings and content
+      const lines = content.split('\n');
+      let currentParagraph = [];
+      
+      doc.font('Times-Roman').fontSize(12);
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        if (!line) {
+          if (currentParagraph.length > 0) {
+            // Output accumulated paragraph
+            const paragraphText = currentParagraph.join(' ').trim();
+            if (paragraphText) {
+              doc.fontSize(12).font('Times-Roman');
+              doc.text(paragraphText, { 
+                align: 'justify',
+                lineGap: 2
+              });
+              doc.moveDown(0.5);
+            }
+            currentParagraph = [];
+          }
+          continue;
+        }
+        
+        // Detect headings (numbered headings like "1. Introduction" or "# Heading")
+        const headingMatch = line.match(/^(\d+\.\s*)(.+)$/) || line.match(/^#{1,6}\s+(.+)$/);
+        if (headingMatch) {
+          // Output any accumulated paragraph first
+          if (currentParagraph.length > 0) {
+            const paragraphText = currentParagraph.join(' ').trim();
+            if (paragraphText) {
+              doc.fontSize(12).font('Times-Roman');
+              doc.text(paragraphText, { align: 'justify', lineGap: 2 });
+              doc.moveDown(0.5);
+            }
+            currentParagraph = [];
+          }
+          
+          // Output heading
+          const headingText = headingMatch[2] || headingMatch[1];
+          const headingLevel = line.match(/^#+/)?.[0]?.length || (line.match(/^\d+\./) ? 1 : 1);
+          const fontSize = headingLevel === 1 ? 18 : headingLevel === 2 ? 16 : 14;
+          
+          doc.fontSize(fontSize).font('Times-Bold');
+          doc.text(headingText.trim(), { align: 'left' });
+          doc.moveDown(0.5);
+          doc.fontSize(12).font('Times-Roman');
+        } else {
+          // Regular text - remove markdown formatting
+          let cleanLine = line
+            .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+            .replace(/\*([^*]+)\*/g, '$1') // Remove italic (but preserve in references)
+            .replace(/`([^`]+)`/g, '$1') // Remove code
+            .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1'); // Remove links
+          
+          currentParagraph.push(cleanLine);
+        }
+      }
+      
+      // Output any remaining paragraph
+      if (currentParagraph.length > 0) {
+        const paragraphText = currentParagraph.join(' ').trim();
+        if (paragraphText) {
+          doc.fontSize(12).font('Times-Roman');
+          doc.text(paragraphText, { align: 'justify', lineGap: 2 });
+        }
+      }
+      
+      doc.end();
+    } catch (error) {
+      console.error('PDFKit generation error:', error);
+      reject(new Error(`PDFKit generation failed: ${error.message}`));
+    }
+  });
 }
 
 function convertMarkdownToHTML(markdown) {
