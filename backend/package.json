@@ -26,6 +26,7 @@
     "pdf-parse": "^1.1.1",
     "openai": "^4.20.1",
     "docx": "^8.2.2",
+    "puppeteer-core": "^21.5.2",
     "puppeteer": "^21.5.2",
     "@sparticuz/chromium": "^131.0.0",
     "uuid": "^9.0.1",

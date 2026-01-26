@@ -1,4 +1,5 @@
-import puppeteer from 'puppeteer';
+// Use puppeteer-core for Vercel compatibility (doesn't bundle Chromium)
+import puppeteer from 'puppeteer-core';
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import fs from 'fs/promises';
 
@@ -22,17 +23,29 @@ export async function generatePDF(htmlContent, metadata = {}) {
       ]
     };
 
-    // For Vercel, try to use @sparticuz/chromium if available
+    // For Vercel, MUST use @sparticuz/chromium
     if (isVercel) {
       try {
-        const chromium = await import('@sparticuz/chromium').catch(() => null);
-        if (chromium) {
-          chromium.setGraphicsMode(false);
-          launchOptions.executablePath = await chromium.executablePath();
-          console.log('Using @sparticuz/chromium for Vercel');
-        }
+        const chromium = await import('@sparticuz/chromium');
+        chromium.setGraphicsMode(false);
+        launchOptions.executablePath = await chromium.executablePath();
+        console.log('Using @sparticuz/chromium for Vercel');
       } catch (chromiumError) {
-        console.warn('@sparticuz/chromium not available, using default Puppeteer:', chromiumError.message);
+        console.error('CRITICAL: @sparticuz/chromium not available:', chromiumError.message);
+        throw new Error('PDF generation requires @sparticuz/chromium on Vercel. Please ensure it is installed.');
+      }
+    } else {
+      // For local development, try to get Chromium path from puppeteer if available
+      try {
+        const puppeteerFull = await import('puppeteer');
+        // Get the executable path from puppeteer
+        const executablePath = puppeteerFull.executablePath();
+        if (executablePath) {
+          launchOptions.executablePath = executablePath;
+          console.log('Using local Puppeteer Chromium');
+        }
+      } catch (localError) {
+        console.warn('Local puppeteer not available, will try system Chrome or default path');
       }
     }
 
@@ -40,6 +53,10 @@ export async function generatePDF(htmlContent, metadata = {}) {
       isVercel, 
       hasExecutablePath: !!launchOptions.executablePath 
     });
+    
+    if (!launchOptions.executablePath && !isVercel) {
+      throw new Error('Chromium executable path not found. For local development, install puppeteer: npm install puppeteer');
+    }
     
     browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
