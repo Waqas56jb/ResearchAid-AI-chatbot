@@ -342,43 +342,77 @@ router.post('/assignment', async (req, res) => {
  */
 router.post('/assignment/download', async (req, res) => {
   try {
+    console.log('Download request received:', {
+      hasContent: !!req.body?.content,
+      format: req.body?.format,
+      contentLength: req.body?.content?.length
+    });
+
     const { content, format } = req.body;
 
     if (!content) {
+      console.error('Download error: Content is required');
       return res.status(400).json({ 
         error: 'Content is required' 
       });
     }
 
-    if (!['pdf', 'docx'].includes(format)) {
+    if (!format || !['pdf', 'docx'].includes(format)) {
+      console.error('Download error: Invalid format:', format);
       return res.status(400).json({ 
         error: 'Invalid format. Use "pdf" or "docx"' 
       });
     }
 
+    console.log(`Generating ${format.toUpperCase()} file...`);
     let fileBuffer;
     let contentType;
     let fileName;
 
     if (format === 'pdf') {
-      fileBuffer = await generatePDF(content, {});
-      contentType = 'application/pdf';
-      fileName = 'assignment_response.pdf';
+      try {
+        fileBuffer = await generatePDF(content, {});
+        contentType = 'application/pdf';
+        fileName = 'assignment_response.pdf';
+        console.log('PDF generated successfully, size:', fileBuffer.length, 'bytes');
+      } catch (pdfError) {
+        console.error('PDF generation error:', pdfError);
+        console.error('PDF error stack:', pdfError.stack);
+        throw new Error(`PDF generation failed: ${pdfError.message}`);
+      }
     } else {
-      fileBuffer = await generateDOCX(content, {});
-      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      fileName = 'assignment_response.docx';
+      try {
+        fileBuffer = await generateDOCX(content, {});
+        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        fileName = 'assignment_response.docx';
+        console.log('DOCX generated successfully, size:', fileBuffer.length, 'bytes');
+      } catch (docxError) {
+        console.error('DOCX generation error:', docxError);
+        console.error('DOCX error stack:', docxError.stack);
+        throw new Error(`DOCX generation failed: ${docxError.message}`);
+      }
     }
 
+    // Set CORS headers for file download
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    
+    console.log('Sending file response...');
     res.send(fileBuffer);
 
   } catch (error) {
     console.error('Assignment download error:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
     res.status(500).json({ 
       error: 'Failed to generate download file',
-      message: error.message 
+      message: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });

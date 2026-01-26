@@ -3,12 +3,45 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
 import fs from 'fs/promises';
 
 export async function generatePDF(htmlContent, metadata = {}) {
+  let browser = null;
   try {
-    const browser = await puppeteer.launch({
+    // Configure Puppeteer for Vercel serverless environment
+    const isVercel = process.env.VERCEL || process.env.VERCEL_ENV;
+    
+    const launchOptions = {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
+    };
 
+    // For Vercel, try to use @sparticuz/chromium if available
+    if (isVercel) {
+      try {
+        const chromium = await import('@sparticuz/chromium').catch(() => null);
+        if (chromium) {
+          chromium.setGraphicsMode(false);
+          launchOptions.executablePath = await chromium.executablePath();
+          console.log('Using @sparticuz/chromium for Vercel');
+        }
+      } catch (chromiumError) {
+        console.warn('@sparticuz/chromium not available, using default Puppeteer:', chromiumError.message);
+      }
+    }
+
+    console.log('Launching Puppeteer browser...', { 
+      isVercel, 
+      hasExecutablePath: !!launchOptions.executablePath 
+    });
+    
+    browser = await puppeteer.launch(launchOptions);
     const page = await browser.newPage();
     
     // Convert markdown to HTML if needed
@@ -262,6 +295,19 @@ export async function generatePDF(htmlContent, metadata = {}) {
 
   } catch (error) {
     console.error('PDF generation error:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Ensure browser is closed even on error
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.error('Error closing browser:', closeError);
+      }
+    }
+    
     throw new Error(`Failed to generate PDF: ${error.message}`);
   }
 }
