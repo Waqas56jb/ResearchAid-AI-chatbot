@@ -1,0 +1,22 @@
+{
+  "name": "docuformat-ai",
+  "version": "1.0.0",
+  "description": "DocuFormat AI - Intelligent Document Formatting Assistant",
+  "scripts": {
+    "install:all": "cd frontend && npm install && cd ../backend && npm install",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm install"
+  },
+  "keywords": [
+    "document",
+    "formatting",
+    "ai",
+    "nlp",
+    "react",
+    "nodejs"
+  ],
+  "author": "Sultan Al-Amer",
+  "license": "ISC"
+}

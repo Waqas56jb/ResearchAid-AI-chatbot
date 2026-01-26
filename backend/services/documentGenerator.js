@@ -1188,13 +1188,14 @@ function convertMarkdownToHTML(markdown) {
       // Reference formatting is handled above, so just add to paragraph
       currentPara.push(cleanedText);
     }
-    
-    // Add any remaining paragraph
-    if (currentPara.length > 0) {
-      paragraphs.push('<p style="font-family: \'Times New Roman\', serif; font-size: 12pt; text-align: justify; line-height: 1.6; margin-bottom: 12px; font-weight: normal;">' + currentPara.join(' ') + '</p>');
-    }
-    
-    html = paragraphs.join('\n');
+  }
+  
+  // Add any remaining paragraph
+  if (currentPara.length > 0) {
+    paragraphs.push('<p style="font-family: \'Times New Roman\', serif; font-size: 12pt; text-align: justify; line-height: 1.6; margin-bottom: 12px; font-weight: normal;">' + currentPara.join(' ') + '</p>');
+  }
+  
+  html = paragraphs.join('\n');
   
   // Final cleanup: remove any remaining markdown from headings and body text
   // Clean up headings that still have markdown asterisks (e.g., "9. \*Conclusions:**")
