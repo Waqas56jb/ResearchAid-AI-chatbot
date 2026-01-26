@@ -26,13 +26,46 @@ export async function generatePDF(htmlContent, metadata = {}) {
     // For Vercel, MUST use @sparticuz/chromium
     if (isVercel) {
       try {
-        const chromium = await import('@sparticuz/chromium');
-        chromium.setGraphicsMode(false);
-        launchOptions.executablePath = await chromium.executablePath();
+        // Import @sparticuz/chromium (default export)
+        const chromiumModule = await import('@sparticuz/chromium');
+        const chromium = chromiumModule.default || chromiumModule;
+        
+        // Check if chromium is available
+        if (!chromium) {
+          throw new Error('@sparticuz/chromium import returned null/undefined');
+        }
+        
+        // Set graphics mode to false (required for serverless)
+        if (typeof chromium.setGraphicsMode === 'function') {
+          chromium.setGraphicsMode(false);
+        }
+        
+        // Get executable path
+        if (typeof chromium.executablePath === 'function') {
+          launchOptions.executablePath = await chromium.executablePath();
+        } else if (typeof chromium.executablePath === 'string') {
+          launchOptions.executablePath = chromium.executablePath;
+        } else {
+          throw new Error('chromium.executablePath is not available');
+        }
+        
+        // Use chromium's optimized args for serverless
+        if (chromium.args && Array.isArray(chromium.args)) {
+          launchOptions.args = chromium.args;
+        }
+        
         console.log('Using @sparticuz/chromium for Vercel');
+        console.log('Executable path:', launchOptions.executablePath);
       } catch (chromiumError) {
-        console.error('CRITICAL: @sparticuz/chromium not available:', chromiumError.message);
-        throw new Error('PDF generation requires @sparticuz/chromium on Vercel. Please ensure it is installed.');
+        console.error('CRITICAL: @sparticuz/chromium import/usage failed:');
+        console.error('Error name:', chromiumError.name);
+        console.error('Error message:', chromiumError.message);
+        console.error('Error code:', chromiumError.code);
+        console.error('Error stack:', chromiumError.stack);
+        console.error('Is Vercel:', isVercel);
+        console.error('VERCEL env:', process.env.VERCEL);
+        console.error('VERCEL_ENV:', process.env.VERCEL_ENV);
+        throw new Error(`PDF generation requires @sparticuz/chromium on Vercel. Error: ${chromiumError.message}`);
       }
     } else {
       // For local development, try to get Chromium path from puppeteer if available
