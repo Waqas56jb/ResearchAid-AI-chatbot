@@ -7,89 +7,84 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
- * Get the upload directory path
- * Always uses /tmp in serverless environments (Vercel, AWS Lambda, etc.)
- * Uses local uploads directory for local development
- */
-export function getUploadDir() {
-  // Check for serverless environment indicators
-  const currentDir = cwd();
-  const isServerless = 
-    process.env.VERCEL || 
-    process.env.VERCEL_ENV || 
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.env.LAMBDA_TASK_ROOT ||
-    process.env.FUNCTION_TARGET ||
-    __dirname.includes('/var/task') ||  // Vercel serverless path
-    __dirname.includes('\\var\\task') || // Windows path format
-    currentDir.includes('/var/task') ||  // Check current working directory
-    currentDir.includes('\\var\\task');  // Windows path format
-  
-  if (isServerless) {
-    console.log('Detected serverless environment, using /tmp');
-    console.log('__dirname:', __dirname);
-    console.log('cwd:', currentDir);
-    return '/tmp';
-  }
-  
-  // For local development
-  const localDir = path.join(__dirname, '../uploads');
-  
-  // CRITICAL: Double-check - if localDir contains /var/task, use /tmp instead
-  if (localDir.includes('/var/task') || localDir.includes('\\var\\task')) {
-    console.log('CRITICAL: Local dir path contains /var/task, using /tmp instead');
-    console.log('Local dir was:', localDir);
-    return '/tmp';
-  }
-  
-  console.log('Using local upload directory:', localDir);
-  return localDir;
-}
-
-/**
  * Ensure upload directory exists
- * Falls back to /tmp if creation fails (for serverless environments)
+ * ULTRA-SIMPLIFIED: Always use /tmp if we detect ANY serverless indicator
+ * This function is called by all file upload endpoints
  */
 export async function ensureUploadDir() {
-  let uploadDir = getUploadDir();
+  // Get current working directory for detection
+  const currentDir = cwd();
   
-  // CRITICAL: If uploadDir contains /var/task, immediately use /tmp
-  // This catches cases where detection didn't work
-  if (uploadDir.includes('/var/task') || uploadDir.includes('\\var\\task')) {
-    console.log('CRITICAL: Upload dir contains /var/task, forcing /tmp');
-    uploadDir = '/tmp';
-  }
+  // Check for serverless environment - MULTIPLE indicators
+  const isServerlessPath = 
+    __dirname.includes('/var/task') || 
+    __dirname.includes('\\var\\task') ||
+    currentDir.includes('/var/task') ||
+    currentDir.includes('\\var\\task');
   
-  // If we're in /var/task (Vercel), always use /tmp
-  if (__dirname.includes('/var/task') || __dirname.includes('\\var\\task')) {
-    console.log('Detected /var/task path, forcing /tmp usage');
-    uploadDir = '/tmp';
-  }
+  const isProduction = process.env.NODE_ENV === 'production';
+  const hasVercelEnv = process.env.VERCEL || process.env.VERCEL_ENV;
   
-  try {
-    await fs.mkdir(uploadDir, { recursive: true });
-    console.log('Upload directory ready:', uploadDir);
-    return uploadDir;
-  } catch (error) {
-    // If mkdir fails, ALWAYS try /tmp as fallback
-    // This is especially important for Vercel
-    console.warn(`Failed to create ${uploadDir}, using /tmp instead:`, error.message);
-    console.warn('Error code:', error.code);
-    
-    // If error mentions /var/task, definitely use /tmp
-    if (error.message && error.message.includes('/var/task')) {
-      console.log('Error message contains /var/task, forcing /tmp');
-      uploadDir = '/tmp';
-    }
+  // LOG everything for debugging
+  console.log('=== ensureUploadDir() called ===');
+  console.log('__dirname:', __dirname);
+  console.log('cwd():', currentDir);
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('VERCEL:', process.env.VERCEL);
+  console.log('VERCEL_ENV:', process.env.VERCEL_ENV);
+  console.log('isServerlessPath:', isServerlessPath);
+  console.log('isProduction:', isProduction);
+  console.log('hasVercelEnv:', hasVercelEnv);
+  
+  // CRITICAL: If ANY serverless indicator, IMMEDIATELY use /tmp (skip all other logic)
+  if (isServerlessPath || isProduction || hasVercelEnv) {
+    console.log('>>> FORCING /tmp (Serverless/Production Detected) <<<');
     
     try {
       await fs.mkdir('/tmp', { recursive: true });
-      console.log('Using /tmp as fallback');
+      console.log('✓ Successfully created/verified /tmp directory');
       return '/tmp';
     } catch (tmpError) {
-      // Even /tmp failed - this is very unusual
-      console.error('Failed to create /tmp directory:', tmpError);
-      throw new Error(`Failed to create upload directory. Tried ${uploadDir} and /tmp: ${tmpError.message}`);
+      console.error('✗ CRITICAL ERROR: Failed to create /tmp:', tmpError);
+      console.error('Error code:', tmpError.code);
+      console.error('Error message:', tmpError.message);
+      throw new Error(`Failed to create /tmp directory: ${tmpError.message}`);
     }
   }
+  
+  // Only for local development (when NONE of the serverless indicators are true)
+  const localDir = path.join(__dirname, '../uploads');
+  console.log('>>> Local development mode - attempting:', localDir);
+  
+  // Double-check: if localDir contains /var/task, force /tmp
+  if (localDir.includes('/var/task') || localDir.includes('\\var\\task')) {
+    console.log('>>> CRITICAL: localDir contains /var/task, forcing /tmp <<<');
+    try {
+      await fs.mkdir('/tmp', { recursive: true });
+      return '/tmp';
+    } catch (tmpError) {
+      throw new Error(`Failed to create /tmp directory: ${tmpError.message}`);
+    }
+  }
+  
+  try {
+    await fs.mkdir(localDir, { recursive: true });
+    console.log('✓ Using local upload directory:', localDir);
+    return localDir;
+  } catch (error) {
+    // If local dir fails, fallback to /tmp
+    console.warn(`Failed to create ${localDir}, falling back to /tmp:`, error.message);
+    try {
+      await fs.mkdir('/tmp', { recursive: true });
+      console.log('✓ Fallback to /tmp successful');
+      return '/tmp';
+    } catch (tmpError) {
+      throw new Error(`Failed to create upload directory (tried ${localDir} and /tmp): ${tmpError.message}`);
+    }
+  }
+}
+
+// Keep getUploadDir for backwards compatibility (not used anymore)
+export function getUploadDir() {
+  return '/tmp'; // Always return /tmp to be safe
 }
