@@ -31,7 +31,8 @@ router.post('/summarize', async (req, res) => {
     const file = req.files.file;
     
     // Parse document
-    const uploadDir = path.join(__dirname, '../uploads');
+    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
     await fs.mkdir(uploadDir, { recursive: true });
     const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
     await file.mv(filePath);
@@ -75,7 +76,8 @@ router.post('/questions', async (req, res) => {
     // If file is uploaded, parse it
     if (req.files && req.files.file) {
       const uploadedFile = req.files.file;
-      const uploadDir = path.join(__dirname, '../uploads');
+      // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+      const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
       await fs.mkdir(uploadDir, { recursive: true });
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${uploadedFile.name}`);
       await uploadedFile.mv(filePath);
@@ -118,7 +120,8 @@ router.post('/critique', async (req, res) => {
     const file = req.files.file;
     
     // Parse document
-    const uploadDir = path.join(__dirname, '../uploads');
+    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
     await fs.mkdir(uploadDir, { recursive: true });
     const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
     await file.mv(filePath);
@@ -243,7 +246,8 @@ router.post('/assignment', async (req, res) => {
       const file = req.files.file;
       console.log('Processing uploaded file:', file.name, file.mimetype);
       
-      const uploadDir = path.join(__dirname, '../uploads');
+      // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+      const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
       await fs.mkdir(uploadDir, { recursive: true });
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
       await file.mv(filePath);

@@ -25,10 +25,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // File upload configuration
+// Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+const tempDir = process.env.VERCEL ? '/tmp' : './uploads/temp';
 app.use(fileUpload({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   createParentPath: true,
-  tempFileDir: './uploads/temp',
+  tempFileDir: tempDir,
   useTempFiles: false // Use memory storage for Vercel
 }));
 

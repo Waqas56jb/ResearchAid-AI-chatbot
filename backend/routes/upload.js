@@ -35,7 +35,8 @@ router.post('/', async (req, res) => {
     const documentId = uuidv4();
     
     // Save uploaded file temporarily
-    const uploadDir = path.join(__dirname, '../uploads');
+    // Use /tmp for Vercel serverless functions (read-only filesystem except /tmp)
+    const uploadDir = process.env.VERCEL ? '/tmp' : path.join(__dirname, '../uploads');
     await fs.mkdir(uploadDir, { recursive: true });
     const filePath = path.join(uploadDir, `${documentId}_${file.name}`);
     await file.mv(filePath);
