@@ -1,13 +1,24 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { FaSpinner, FaBook, FaSearch } from 'react-icons/fa'
-import apiClient from '../config/api'
+import { API_BASE } from '../config/api'
 
 function ResearchAidMain() {
   const [loading, setLoading] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [streamedText, setStreamedText] = useState('')
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [query, setQuery] = useState('')
   const [wordCount, setWordCount] = useState(1000)
+  const streamEndRef = useRef(null)
+  const scrollThrottleRef = useRef(0)
+
+  const scrollToStreamEnd = () => {
+    const now = Date.now()
+    if (now - scrollThrottleRef.current < 120) return
+    scrollThrottleRef.current = now
+    streamEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   const handleSubmit = async (e) => {
     e?.preventDefault()
@@ -17,21 +28,88 @@ function ResearchAidMain() {
     }
     setError(null)
     setLoading(true)
+    setStreaming(false)
+    setStreamedText('')
     setResult(null)
+
     try {
-      const response = await apiClient.post('/research/assignment', {
-        assignmentText: query.trim(),
-        wordCount: wordCount || 1000
+      const res = await fetch(`${API_BASE}/research/assignment/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignmentText: query.trim(),
+          wordCount: wordCount || 1000
+        })
       })
-      setResult(response.data)
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || `Request failed: ${res.status}`)
+      }
+      setStreaming(true)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+      let finalWordCount = 0
+      let finalModel = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const data = JSON.parse(line)
+            if (data.content) {
+              fullText += data.content
+              setStreamedText(fullText)
+              setTimeout(scrollToStreamEnd, 0)
+            }
+            if (data.done) {
+              finalWordCount = data.wordCount ?? 0
+              finalModel = data.model ?? ''
+            }
+            if (data.error) throw new Error(data.error)
+          } catch (parseErr) {
+            if (parseErr.message && parseErr.message !== 'Unexpected end of JSON input') throw parseErr
+          }
+        }
+      }
+      if (buffer.trim()) {
+        try {
+          const data = JSON.parse(buffer)
+          if (data.content) {
+            fullText += data.content
+            setStreamedText(fullText)
+          }
+          if (data.done) {
+            finalWordCount = data.wordCount ?? 0
+            finalModel = data.model ?? ''
+          }
+        } catch (_) {}
+      }
+
+      setResult({
+        response: fullText,
+        wordCount: finalWordCount || fullText.split(/\s+/).filter(w => w.length > 0).length,
+        model: finalModel || 'gpt-4-turbo-preview'
+      })
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to generate Research Aid report.')
+      setError(err.message || 'Failed to generate Research Aid report.')
+      setStreaming(false)
+      setStreamedText('')
     } finally {
       setLoading(false)
+      setStreaming(false)
     }
   }
 
-  const { bodyText, references } = parseResponse(result?.response)
+  const showStreaming = streaming || (loading && streamedText)
+  const { bodyText, references } = parseResponse(result?.response ?? (showStreaming ? streamedText : ''))
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -44,7 +122,7 @@ function ResearchAidMain() {
         </p>
       </div>
 
-      {!result ? (
+      {!result && !showStreaming ? (
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm overflow-hidden">
             <div className="p-6 space-y-4">
@@ -80,7 +158,7 @@ function ResearchAidMain() {
                   {loading ? (
                     <>
                       <FaSpinner className="animate-spin" />
-                      Generating report…
+                      Connecting…
                     </>
                   ) : (
                     <>
@@ -104,32 +182,45 @@ function ResearchAidMain() {
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-2 text-primary-600">
                 <FaBook className="text-lg" />
-                <span className="text-sm font-medium">Report generated</span>
+                <span className="text-sm font-medium">
+                  {showStreaming ? 'Generating report…' : 'Report generated'}
+                </span>
               </div>
-              <div className="flex items-center gap-4 text-sm text-slate-600">
-                <span><strong className="text-slate-800">{result.wordCount?.toLocaleString()}</strong> words</span>
-                <span className="text-slate-400">|</span>
-                <span>{result.model}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { setResult(null); setError(null); setQuery(''); }}
-                className="text-sm font-medium text-primary-600 hover:text-primary-700"
-              >
-                New report
-              </button>
+              {result && (
+                <div className="flex items-center gap-4 text-sm text-slate-600">
+                  <span><strong className="text-slate-800">{result.wordCount?.toLocaleString()}</strong> words</span>
+                  <span className="text-slate-400">|</span>
+                  <span>{result.model}</span>
+                </div>
+              )}
+              {result && (
+                <button
+                  type="button"
+                  onClick={() => { setResult(null); setError(null); setQuery(''); setStreamedText(''); }}
+                  className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                >
+                  New report
+                </button>
+              )}
             </div>
             <div className="p-6">
-              <div className="prose prose-slate max-w-none">
-                <div
-                  className="research-aid-body text-slate-700 leading-relaxed whitespace-pre-wrap"
-                  dangerouslySetInnerHTML={{ __html: formatBody(bodyText) }}
-                />
-              </div>
+              {showStreaming ? (
+                <div className="research-aid-body text-slate-700 leading-relaxed whitespace-pre-wrap min-h-[200px] max-h-[70vh] overflow-y-auto">
+                  {streamedText}
+                  <span ref={streamEndRef} className="inline-block w-2 h-4 ml-0.5 bg-primary-500 animate-pulse align-text-bottom" aria-hidden="true" />
+                </div>
+              ) : (
+                <div className="prose prose-slate max-w-none">
+                  <div
+                    className="research-aid-body text-slate-700 leading-relaxed whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{ __html: formatBody(bodyText) }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
-          {references.length > 0 && (
+          {result && references.length > 0 && (
             <div className="rounded-2xl bg-white border border-slate-200/80 shadow-sm overflow-hidden">
               <h3 className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 text-lg font-semibold text-slate-800">
                 References
@@ -138,11 +229,18 @@ function ResearchAidMain() {
                 {references.map((ref, i) => (
                   <li
                     key={i}
-                    className="references-hover group flex gap-3 text-sm text-slate-600 border-l-2 border-slate-200 pl-4 py-2 hover:border-primary-400 hover:bg-primary-50/50 rounded-r-lg transition-colors"
-                    title={ref}
+                    className="references-hover group flex gap-3 text-sm border-l-2 border-slate-200 pl-4 py-2 hover:border-primary-400 hover:bg-primary-50/50 rounded-r-lg transition-colors"
                   >
                     <span className="font-medium text-slate-500 tabular-nums shrink-0">{i + 1}.</span>
-                    <span className="group-hover:text-slate-800">{ref}</span>
+                    <a
+                      href={getReferenceUrl(ref)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-slate-600 group-hover:text-slate-800 underline decoration-primary-300/50 hover:decoration-primary-500 transition-colors break-words"
+                      title={ref.text}
+                    >
+                      {ref.text}
+                    </a>
                   </li>
                 ))}
               </ul>
@@ -152,6 +250,34 @@ function ResearchAidMain() {
       )}
     </div>
   )
+}
+
+// Allowed domains for reference links (verified academic sources)
+const ALLOWED_LINK_HOSTS = [
+  'doi.org', 'scholar.google.com', 'scholar.google.co.uk',
+  'arxiv.org', 'pubmed.ncbi.nlm.nih.gov', 'ncbi.nlm.nih.gov',
+  'jstor.org', 'ieee.org', 'acm.org', 'springer.com', 'sciencedirect.com',
+  'nature.com', 'science.org', 'plos.org', 'wiley.com', 'tandfonline.com',
+  'cambridge.org', 'oxford.ac.uk', 'researchgate.net', 'semanticscholar.org',
+  'eric.ed.gov', 'gov', 'edu', 'org'
+]
+
+function isAllowedUrl(href) {
+  if (!href || !href.startsWith('https://')) return false
+  try {
+    const host = new URL(href).hostname.toLowerCase()
+    return ALLOWED_LINK_HOSTS.some(allowed =>
+      host === allowed || host.endsWith('.' + allowed)
+    )
+  } catch {
+    return false
+  }
+}
+
+function getReferenceUrl(ref) {
+  if (ref.url && isAllowedUrl(ref.url)) return ref.url
+  const query = encodeURIComponent(ref.text.replace(/\s+/g, ' ').trim())
+  return `https://scholar.google.com/scholar?q=${query}`
 }
 
 function parseResponse(text) {
@@ -172,10 +298,17 @@ function parseResponse(text) {
   if (refStart === -1) return { bodyText: text.trim(), references: [] }
   const bodyText = text.slice(0, refStart).trim()
   const refBlock = text.slice(refStart).replace(/^[\s\S]*?References\s*\n?\s*/i, '').trim()
+  const urlPattern = /\s+(?:URL|Available at|Link):\s*(https:\/\/[^\s]+)/i
   const references = refBlock
     .split(/\n+/)
     .map(line => line.replace(/^\d+\.\s*/, '').trim())
     .filter(Boolean)
+    .map(line => {
+      const match = line.match(urlPattern)
+      const url = match ? match[1].replace(/[.,;:)]+$/, '') : null
+      const text = match ? line.slice(0, match.index).trim() : line
+      return { text: text || line, url: url && url.startsWith('https://') ? url : null }
+    })
   return { bodyText, references }
 }
 

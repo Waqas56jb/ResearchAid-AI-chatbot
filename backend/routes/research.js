@@ -6,7 +6,8 @@ import {
   critiqueArguments,
   generateCitations,
   generateDissertationOutline,
-  generateResearchAidReport
+  generateResearchAidReport,
+  streamResearchAidReport
 } from '../services/researchAidService.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -233,7 +234,7 @@ router.post('/outline', async (req, res) => {
 
 /**
  * POST /api/research/assignment
- * Research Aid Main: Generate comprehensive academic report from topic/query
+ * Research Aid Main: Generate comprehensive academic report from topic/query (non-streaming)
  */
 router.post('/assignment', async (req, res) => {
   try {
@@ -306,6 +307,76 @@ router.post('/assignment', async (req, res) => {
       error: errorMessage,
       message: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
+  }
+});
+
+/**
+ * POST /api/research/assignment/stream
+ * Research Aid Main: Stream report token-by-token (real-time on frontend)
+ */
+router.post('/assignment/stream', async (req, res) => {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({
+        error: 'Server configuration error',
+        message: 'OpenAI API key is not configured.'
+      });
+    }
+
+    let queryText = '';
+    if (req.files && req.files.file) {
+      const file = req.files.file;
+      const uploadDir = await ensureUploadDir();
+      const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
+      await file.mv(filePath);
+      const parsedContent = await parseDocument(filePath, file.mimetype);
+      queryText = parsedContent.text;
+      await fs.unlink(filePath).catch(() => {});
+    } else if (req.body.assignmentText) {
+      queryText = req.body.assignmentText;
+    } else {
+      return res.status(400).json({ error: 'Topic or query is required' });
+    }
+
+    if (!queryText.trim()) {
+      return res.status(400).json({ error: 'Query content cannot be empty' });
+    }
+
+    const wordCount = parseInt(req.body.wordCount, 10) || 1000;
+    const model = req.body.model || 'gpt-4-turbo-preview';
+
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders && res.flushHeaders();
+
+    let fullText = '';
+    try {
+      for await (const chunk of streamResearchAidReport(queryText, { model, wordCount })) {
+        if (chunk.content) {
+          fullText += chunk.content;
+          res.write(JSON.stringify({ content: chunk.content }) + '\n');
+          if (res.flush) res.flush();
+        }
+      }
+    } catch (streamErr) {
+      console.error('Stream error:', streamErr);
+      res.write(JSON.stringify({ error: streamErr.message || 'Stream failed' }) + '\n');
+      res.end();
+      return;
+    }
+
+    const wordCountActual = fullText.split(/\s+/).filter(w => w.length > 0).length;
+    res.write(JSON.stringify({ done: true, wordCount: wordCountActual, model }) + '\n');
+    res.end();
+  } catch (error) {
+    console.error('Research Aid stream error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: error.message || 'Failed to start stream'
+      });
+    }
   }
 });
 

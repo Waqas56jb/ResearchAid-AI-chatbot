@@ -313,7 +313,7 @@ Guidelines:
 - Use universal formatting: clear numbered sections (1., 1.1, 2., etc.), professional tone, and flowing prose.
 - Be friendly and accessible in tone while maintaining academic rigor—generalized and advanced in writing.
 - Support every major claim with in-text citations in the form (Author, Year).
-- Include exactly 10-15 high-quality references at the end, formatted in a consistent academic style (e.g. Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages.).
+- Include exactly 10-15 high-quality references at the end. For each reference use this format: Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages. URL: https://... (provide a real, verifiable link: prefer https://doi.org/... for papers, or https://scholar.google.com/scholar?q=Title+Author+Year for search, or official publisher link—only use real URLs you know; do not invent).
 - Structure: Title, Introduction, logical sections (e.g. Definitions, Historical Foundations, Technical Foundations, Applications, Ethics, Challenges, Future Directions), Conclusion, References.
 - No code, no figures; text only. No markdown bold in headings—use plain numbered headings like "1. Introduction".`;
 
@@ -326,7 +326,7 @@ Requirements:
 1. Write a formal, academic-style report with a clear title and numbered sections.
 2. Include: Introduction, main body sections (adapt to the topic—e.g. definitions, history, technical foundations, applications, ethics, challenges, future directions), Conclusion, and References.
 3. All major points must be supported by in-text citations (Author, Year).
-4. End with a "References" section containing 10-15 sources in a consistent format (e.g. Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages.).
+4. End with a "References" section with 10-15 sources. Each reference must be: citation text in academic style (Author, Year. Title. Journal/Publisher, Vol(Issue), pp.pages.) followed by " URL: " and a valid link. Use only real, verifiable URLs: prefer https://doi.org/... for articles, or https://scholar.google.com/scholar?q=... for a search link (e.g. q=encoded+paper+title+author), or official .edu/.gov/.org publisher pages. Do not make up URLs.
 5. Use numbered headings only (1., 1.1, 2., 2.1, etc.). No bullet points for section titles. No markdown bold in headings.
 6. Write in a natural, humanized academic voice—friendly, focused, and of high quality.`;
 
@@ -355,6 +355,57 @@ Requirements:
   } catch (error) {
     console.error('Research Aid report generation error:', error);
     throw new Error(`Failed to generate Research Aid report: ${error.message}`);
+  }
+}
+
+/**
+ * Stream Research Aid report token-by-token (async generator).
+ * Yields { content: string } for each chunk; callers accumulate for full text.
+ */
+export async function* streamResearchAidReport(query, options = {}) {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OpenAI API key not configured');
+  }
+
+  const wordCount = Math.min(Math.max(parseInt(options.wordCount, 10) || 1000, 500), 5000);
+  const systemContent = `You are an expert academic research assistant that automates the research and literature review process. Your role is to produce high-quality, comprehensive summaries of topics using only academic-style sources and references.
+
+Guidelines:
+- Write in a formal, academic style suitable for reports and literature reviews.
+- Use universal formatting: clear numbered sections (1., 1.1, 2., etc.), professional tone, and flowing prose.
+- Be friendly and accessible in tone while maintaining academic rigor—generalized and advanced in writing.
+- Support every major claim with in-text citations in the form (Author, Year).
+- Include exactly 10-15 high-quality references at the end. For each reference use: Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages. URL: https://... (real link: prefer doi.org, scholar.google.com/scholar?q=..., or official publisher—do not invent URLs).
+- Structure: Title, Introduction, logical sections (e.g. Definitions, Historical Foundations, Technical Foundations, Applications, Ethics, Challenges, Future Directions), Conclusion, References.
+- No code, no figures; text only. No markdown bold in headings—use plain numbered headings like "1. Introduction".`;
+
+  const userPrompt = `Produce a comprehensive academic report based on the following request. The report must be strictly based on high-quality academic sources (peer-reviewed literature, scholarly reviews, seminal papers). Aim for approximately ${wordCount} words. Use universal formatting and a formal report style.
+
+User request:
+${query.substring(0, 8000)}
+
+Requirements:
+1. Write a formal, academic-style report with a clear title and numbered sections.
+2. Include: Introduction, main body sections (adapt to the topic—e.g. definitions, history, technical foundations, applications, ethics, challenges, future directions), Conclusion, and References.
+3. All major points must be supported by in-text citations (Author, Year).
+4. End with a "References" section with 10-15 sources. Each reference: citation (Author, Year. Title. Journal/Publisher, Vol(Issue), pp.pages.) then " URL: " and a valid link (https://doi.org/..., or https://scholar.google.com/scholar?q=..., or official .edu/.gov/.org). Only use real, verifiable URLs.
+5. Use numbered headings only (1., 1.1, 2., 2.1, etc.). No bullet points for section titles. No markdown bold in headings.
+6. Write in a natural, humanized academic voice—friendly, focused, and of high quality.`;
+
+  const stream = await openai.chat.completions.create({
+    model: options.model || 'gpt-4-turbo-preview',
+    messages: [
+      { role: 'system', content: systemContent },
+      { role: 'user', content: userPrompt }
+    ],
+    temperature: 0.5,
+    max_tokens: 4096,
+    stream: true
+  });
+
+  for await (const chunk of stream) {
+    const text = chunk.choices?.[0]?.delta?.content;
+    if (text) yield { content: text };
   }
 }
 

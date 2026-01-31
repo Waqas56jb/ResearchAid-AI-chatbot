@@ -1,8 +1,9 @@
 import axios from 'axios';
 
-// Priority: 1. VITE_API_URL from .env (Vercel URL for production)
-//          2. Fallback to localhost for local development
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Use Vercel backend URL (production). Override with VITE_API_URL in .env for local dev (e.g. http://localhost:5000/api)
+const VERCEL_API_BASE = 'https://research-aid-ai-chatbot.vercel.app/api';
+export const API_BASE = import.meta.env.VITE_API_URL || VERCEL_API_BASE;
+const API_URL = API_BASE;
 
 const apiClient = axios.create({
   baseURL: API_URL,
