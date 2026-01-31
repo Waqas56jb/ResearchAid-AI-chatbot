@@ -1,27 +1,29 @@
 import { useState } from 'react'
 import Header from './components/Header'
 import Navigation from './components/Navigation'
+import ResearchAidMain from './components/ResearchAidMain'
 import PaperSummarizer from './components/PaperSummarizer'
 import ResearchQuestions from './components/ResearchQuestions'
 import ArgumentCritique from './components/ArgumentCritique'
 import CitationGenerator from './components/CitationGenerator'
 import DissertationOutline from './components/DissertationOutline'
-import AssignmentGenerator from './components/AssignmentGenerator'
 
 function App() {
-  const [activeFeature, setActiveFeature] = useState('summarize')
+  const [activeFeature, setActiveFeature] = useState('research-aid')
 
   const features = [
+    { id: 'research-aid', name: 'Research Aid Main', icon: '🎯' },
     { id: 'summarize', name: 'Paper Summarization', icon: '📄' },
     { id: 'questions', name: 'Research Questions', icon: '❓' },
     { id: 'critique', name: 'Argument Critique', icon: '🔍' },
     { id: 'citations', name: 'Citation Generator', icon: '📚' },
     { id: 'outline', name: 'Dissertation Outline', icon: '📋' },
-    { id: 'assignment', name: 'Assignment Generator', icon: '📝' }
   ]
 
   const renderActiveFeature = () => {
     switch (activeFeature) {
+      case 'research-aid':
+        return <ResearchAidMain />
       case 'summarize':
         return <PaperSummarizer />
       case 'questions':
@@ -32,15 +34,13 @@ function App() {
         return <CitationGenerator />
       case 'outline':
         return <DissertationOutline />
-      case 'assignment':
-        return <AssignmentGenerator />
       default:
-        return <PaperSummarizer />
+        return <ResearchAidMain />
     }
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       <Header />
       <Navigation 
         features={features}

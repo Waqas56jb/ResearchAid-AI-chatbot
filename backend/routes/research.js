@@ -6,9 +6,8 @@ import {
   critiqueArguments,
   generateCitations,
   generateDissertationOutline,
-  generateAssignmentResponse
+  generateResearchAidReport
 } from '../services/researchAidService.js';
-import { generatePDF, generateDOCX } from '../services/documentGenerator.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -234,17 +233,17 @@ router.post('/outline', async (req, res) => {
 
 /**
  * POST /api/research/assignment
- * Generate comprehensive assignment response from requirements document
+ * Research Aid Main: Generate comprehensive academic report from topic/query
  */
 router.post('/assignment', async (req, res) => {
   try {
-    console.log('Assignment request received:', {
+    console.log('Research Aid request received:', {
       hasFile: !!req.files?.file,
       hasText: !!req.body?.assignmentText,
+      wordCount: req.body?.wordCount,
       contentType: req.headers['content-type']
     });
 
-    // Check OpenAI API key
     if (!process.env.OPENAI_API_KEY) {
       console.error('OpenAI API key not configured');
       return res.status(500).json({
@@ -253,172 +252,59 @@ router.post('/assignment', async (req, res) => {
       });
     }
 
-    let assignmentText = '';
+    let queryText = '';
 
-    // If file is uploaded, parse it
     if (req.files && req.files.file) {
       const file = req.files.file;
-      console.log('Processing uploaded file:', file.name, file.mimetype);
-      
-      // Use utility function to get upload directory (handles Vercel/serverless)
       const uploadDir = await ensureUploadDir();
       const filePath = path.join(uploadDir, `temp_${Date.now()}_${file.name}`);
       await file.mv(filePath);
-      
       const parsedContent = await parseDocument(filePath, file.mimetype);
-      assignmentText = parsedContent.text;
-      
+      queryText = parsedContent.text;
       await fs.unlink(filePath).catch(() => {});
     } else if (req.body.assignmentText) {
-      // If text is provided directly
-      assignmentText = req.body.assignmentText;
-      console.log('Processing text input, length:', assignmentText.length);
+      queryText = req.body.assignmentText;
     } else {
-      return res.status(400).json({ 
-        error: 'Assignment file or text is required' 
-      });
+      return res.status(400).json({ error: 'Topic or query is required' });
     }
 
-    if (!assignmentText.trim()) {
-      return res.status(400).json({ 
-        error: 'Assignment content cannot be empty' 
-      });
+    if (!queryText.trim()) {
+      return res.status(400).json({ error: 'Query content cannot be empty' });
     }
 
-    console.log('Starting assignment generation...');
+    const wordCount = parseInt(req.body.wordCount, 10) || 1000;
+    console.log('Starting Research Aid report generation...');
     const startTime = Date.now();
-    
-    const responseResult = await generateAssignmentResponse(assignmentText, {
-      model: req.body.model || 'gpt-4-turbo-preview'
+
+    const result = await generateResearchAidReport(queryText, {
+      model: req.body.model || 'gpt-4-turbo-preview',
+      wordCount
     });
 
-    const duration = Date.now() - startTime;
-    console.log('Assignment generation completed in', duration, 'ms');
+    console.log('Research Aid report completed in', Date.now() - startTime, 'ms');
 
     res.json({
-      response: responseResult.response,
-      wordCount: responseResult.wordCount,
-      sections: responseResult.sections,
-      model: responseResult.model
+      response: result.response,
+      wordCount: result.wordCount,
+      sections: result.sections,
+      model: result.model
     });
-
   } catch (error) {
-    console.error('Assignment response generation error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      code: error.code
-    });
-
-    // Provide more detailed error information
-    let errorMessage = 'Failed to generate assignment response';
+    console.error('Research Aid generation error:', error);
+    let errorMessage = 'Failed to generate Research Aid report';
     let statusCode = 500;
-
     if (error.message.includes('API key')) {
       errorMessage = 'OpenAI API key is not configured';
-      statusCode = 500;
     } else if (error.message.includes('timeout') || error.code === 'ETIMEDOUT') {
-      errorMessage = 'Request timeout. The assignment generation is taking too long. Please try with a shorter assignment brief.';
+      errorMessage = 'Request timeout. Please try a shorter query or lower word count.';
       statusCode = 504;
     } else if (error.message.includes('rate limit')) {
       errorMessage = 'Rate limit exceeded. Please try again in a few moments.';
       statusCode = 429;
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
+    } else if (error.message) errorMessage = error.message;
     res.status(statusCode).json({
       error: errorMessage,
-      message: process.env.NODE_ENV === 'development' ? error.message : undefined,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-/**
- * POST /api/research/assignment/download
- * Download assignment response as PDF or DOCX
- */
-router.post('/assignment/download', async (req, res) => {
-  try {
-    console.log('Download request received:', {
-      hasContent: !!req.body?.content,
-      format: req.body?.format,
-      contentLength: req.body?.content?.length
-    });
-
-    const { content, format } = req.body;
-
-    if (!content) {
-      console.error('Download error: Content is required');
-      return res.status(400).json({ 
-        error: 'Content is required' 
-      });
-    }
-
-    if (!format || !['pdf', 'docx'].includes(format)) {
-      console.error('Download error: Invalid format:', format);
-      return res.status(400).json({ 
-        error: 'Invalid format. Use "pdf" or "docx"' 
-      });
-    }
-
-    console.log(`Generating ${format.toUpperCase()} file...`);
-    let fileBuffer;
-    let contentType;
-    let fileName;
-
-    if (format === 'pdf') {
-      try {
-        fileBuffer = await generatePDF(content, {});
-        contentType = 'application/pdf';
-        fileName = 'assignment_response.pdf';
-        console.log('PDF generated successfully, size:', fileBuffer.length, 'bytes');
-      } catch (pdfError) {
-        console.error('PDF generation error:', pdfError);
-        console.error('PDF error stack:', pdfError.stack);
-        
-        // If it's a system library error, provide helpful message
-        if (pdfError.message && pdfError.message.includes('libnss3.so')) {
-          throw new Error('PDF generation failed due to serverless environment limitations. Please try downloading as Markdown (MD) format instead, or contact support for alternative PDF generation options.');
-        }
-        
-        throw new Error(`PDF generation failed: ${pdfError.message}`);
-      }
-    } else {
-      try {
-        fileBuffer = await generateDOCX(content, {});
-        contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-        fileName = 'assignment_response.docx';
-        console.log('DOCX generated successfully, size:', fileBuffer.length, 'bytes');
-      } catch (docxError) {
-        console.error('DOCX generation error:', docxError);
-        console.error('DOCX error stack:', docxError.stack);
-        throw new Error(`DOCX generation failed: ${docxError.message}`);
-      }
-    }
-
-    // Set CORS headers for file download
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    
-    console.log('Sending file response...');
-    res.send(fileBuffer);
-
-  } catch (error) {
-    console.error('Assignment download error:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    
-    res.status(500).json({ 
-      error: 'Failed to generate download file',
-      message: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });

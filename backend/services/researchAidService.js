@@ -294,7 +294,72 @@ Generate a comprehensive dissertation outline that demonstrates academic depth a
 }
 
 /**
- * Generate comprehensive assignment response from requirements
+ * Research Aid Main: Generate comprehensive academic summary from a topic.
+ * Given a topic/query, produces a high-quality formal report based on academic sources,
+ * with 10-15 references. Automates research and literature review.
+ */
+export async function generateResearchAidReport(query, options = {}) {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OpenAI API key not configured');
+    }
+
+    const wordCount = Math.min(Math.max(parseInt(options.wordCount, 10) || 1000, 500), 5000);
+
+    const systemContent = `You are an expert academic research assistant that automates the research and literature review process. Your role is to produce high-quality, comprehensive summaries of topics using only academic-style sources and references.
+
+Guidelines:
+- Write in a formal, academic style suitable for reports and literature reviews.
+- Use universal formatting: clear numbered sections (1., 1.1, 2., etc.), professional tone, and flowing prose.
+- Be friendly and accessible in tone while maintaining academic rigor—generalized and advanced in writing.
+- Support every major claim with in-text citations in the form (Author, Year).
+- Include exactly 10-15 high-quality references at the end, formatted in a consistent academic style (e.g. Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages.).
+- Structure: Title, Introduction, logical sections (e.g. Definitions, Historical Foundations, Technical Foundations, Applications, Ethics, Challenges, Future Directions), Conclusion, References.
+- No code, no figures; text only. No markdown bold in headings—use plain numbered headings like "1. Introduction".`;
+
+    const userPrompt = `Produce a comprehensive academic report based on the following request. The report must be strictly based on high-quality academic sources (peer-reviewed literature, scholarly reviews, seminal papers). Aim for approximately ${wordCount} words. Use universal formatting and a formal report style.
+
+User request:
+${query.substring(0, 8000)}
+
+Requirements:
+1. Write a formal, academic-style report with a clear title and numbered sections.
+2. Include: Introduction, main body sections (adapt to the topic—e.g. definitions, history, technical foundations, applications, ethics, challenges, future directions), Conclusion, and References.
+3. All major points must be supported by in-text citations (Author, Year).
+4. End with a "References" section containing 10-15 sources in a consistent format (e.g. Author, Year. Title. Journal/Publisher, Volume(Issue), pp.pages.).
+5. Use numbered headings only (1., 1.1, 2., 2.1, etc.). No bullet points for section titles. No markdown bold in headings.
+6. Write in a natural, humanized academic voice—friendly, focused, and of high quality.`;
+
+    const response = await openai.chat.completions.create({
+      model: options.model || 'gpt-4-turbo-preview',
+      messages: [
+        { role: 'system', content: systemContent },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.5,
+      max_tokens: 4096
+    });
+
+    let fullResponse = response.choices[0].message.content || '';
+
+    // Light cleanup: remove markdown bold from headings
+    fullResponse = fullResponse.replace(/^(\d+(?:\.\d+)*)\s+\*\*(.+?)\*\*/gim, '$1 $2');
+    const wordCountActual = fullResponse.split(/\s+/).filter(w => w.length > 0).length;
+
+    return {
+      response: fullResponse,
+      wordCount: wordCountActual,
+      model: options.model || 'gpt-4-turbo-preview',
+      sections: extractSections(fullResponse)
+    };
+  } catch (error) {
+    console.error('Research Aid report generation error:', error);
+    throw new Error(`Failed to generate Research Aid report: ${error.message}`);
+  }
+}
+
+/**
+ * Generate comprehensive assignment response from requirements (legacy)
  */
 export async function generateAssignmentResponse(assignmentText, options = {}) {
   try {
